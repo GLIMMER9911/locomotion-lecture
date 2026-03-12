@@ -1,4 +1,4 @@
-name: mujoco-learning
+name: locomotion-lecture
 
 channels:
   - conda-forge
