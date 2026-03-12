@@ -2,17 +2,35 @@
 # https://github.com/unitreerobotics/xr_teleoperate/blob/main/teleop/robot_control/robot_arm_ik.py
 # https://github.com/ccrpRepo/mocap_retarget/blob/master/src/mocap/src/robot_ik.py
 
-import casadi          
 import numpy as np
 import pinocchio as pin
-from pinocchio import casadi as cpin               
+import pinocchio.casadi as cpin
+import casadi
+from pathlib import Path
+
 
 class Kinematics:
     def __init__(self, ee_frame) -> None:
         self.frame_name = ee_frame
 
     def buildFromMJCF(self, mcjf_file):
-        self.arm = pin.RobotWrapper.BuildFromMJCF(mcjf_file)
+        mjcf_path = Path(mcjf_file)
+        if not mjcf_path.is_absolute():
+            cwd_candidate = (Path.cwd() / mjcf_path).resolve()
+            src_candidate = (Path(__file__).resolve().parent / mjcf_path).resolve()
+            root_candidate = (Path(__file__).resolve().parent.parent / mjcf_path).resolve()
+
+            if cwd_candidate.exists():
+                mjcf_path = cwd_candidate
+            elif src_candidate.exists():
+                mjcf_path = src_candidate
+            elif root_candidate.exists():
+                mjcf_path = root_candidate
+
+        if not mjcf_path.exists():
+            raise FileNotFoundError(f"MJCF file not found: {mcjf_file}")
+
+        self.arm = pin.RobotWrapper.BuildFromMJCF(str(mjcf_path))
         self.createSolver()
 
     def buildFromURDF(self, urdf_file):

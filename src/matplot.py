@@ -2,38 +2,35 @@ import numpy as np
 import time
 from typing import Optional, Dict, Any, Tuple
 import pyqtgraph as pg
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QGridLayout
-from PyQt5.QtCore import Qt
+from pyqtgraph.Qt import QtCore, QtWidgets
 import sys
 import weakref
 
 
 class MultiChartRealTimePlotManager:
     def __init__(self):
-        self.app = QApplication.instance() or QApplication(sys.argv)
+        self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
         self.plotters: Dict[str, Dict[str, Any]] = {}
         self.max_points = 1000
-        self.default_figsize = (1000, 800)  # 统一父窗口尺寸
-        self.parent_win: Optional[QMainWindow] = None  # 唯一父窗口
-        self.main_layout: Optional[QGridLayout] = None  # 全局网格布局
+        self.default_figsize = (1000, 800)  
+        self.parent_win: Optional[QtWidgets.QMainWindow] = None  
+        self.main_layout: Optional[QtWidgets.QGridLayout] = None
 
     def _init_parent_window(self):
-        """初始化唯一的父窗口和全局布局"""
         if self.parent_win is not None:
             return
-        self.parent_win = QMainWindow()
+        self.parent_win = QtWidgets.QMainWindow()
         self.parent_win.setWindowTitle("Real-Time Monitor")
         self.parent_win.resize(*self.default_figsize)
         
-        central_widget = QWidget()
+        central_widget = QtWidgets.QWidget()
         self.parent_win.setCentralWidget(central_widget)
-        self.main_layout = QGridLayout(central_widget)
+        self.main_layout = QtWidgets.QGridLayout(central_widget)
         self.parent_win.show()
 
     def _create_base_plotter(self, plotter_name: str, 
                              title: str, x_label: str, y_label: str,
                              row: int, col: int):
-        """在全局布局中创建子图"""
         self._init_parent_window()
         if plotter_name in self.plotters:
             return
@@ -45,7 +42,6 @@ class MultiChartRealTimePlotManager:
         plot_widget.showGrid(x=True, y=True, alpha=0.3)
         plot_widget.setObjectName(plotter_name)
         
-        # 将子图添加到全局布局的指定行列
         self.main_layout.addWidget(plot_widget, row, col)
         
         self.plotters[plotter_name] = {
@@ -57,8 +53,7 @@ class MultiChartRealTimePlotManager:
 
     def addNewFigurePlotter(self, plotter_name: str, title: str = "rt data", 
                             x_label: str = "time", y_label: str = "value",
-                            row: int = 0, col: int = 0):  # 新增行列参数
-        """添加子图到全局布局（指定行列）"""
+                            row: int = 0, col: int = 0):  
         self._create_base_plotter(plotter_name, title, x_label, y_label, row, col)
 
     def addPlotToPlotter(self, plotter_name: str, series_name: str, 
@@ -78,7 +73,7 @@ class MultiChartRealTimePlotManager:
         
         pen = pg.mkPen(color=color or 'cyan', width=linewidth)
         if linestyle == ':':
-            pen.setStyle(Qt.DotLine)
+            pen.setStyle(QtCore.Qt.PenStyle.DotLine)
         
         curve = plot_widget.plot(name=label or series_name, pen=pen)
         plot_widget.addLegend(size=(80, 40))
@@ -127,11 +122,9 @@ class MultiChartRealTimePlotManager:
         self.app.quit()
 
 
-# 使用示例（所有子图在同一个窗口内，按2行3列布局）
 if __name__ == "__main__":
     plot_manager = MultiChartRealTimePlotManager()
     
-    # 添加子图到同一个窗口的不同行列
     plot_manager.addNewFigurePlotter("acc.x", title="acc.x", row=0, col=0)
     plot_manager.addNewFigurePlotter("speed.x", title="speed.x", row=0, col=1)
     plot_manager.addNewFigurePlotter("nowspeed.x", title="nowspeed.x", row=0, col=2)
@@ -139,7 +132,6 @@ if __name__ == "__main__":
     # plot_manager.addNewFigurePlotter("delta", title="delta.y", row=1, col=1)
     # plot_manager.addNewFigurePlotter("delta", title="delta.z", row=1, col=2)
     
-    # 为每个子图添加曲线
     plot_manager.addPlotToPlotter("acc.x", "acc.x", color="g")
     plot_manager.addPlotToPlotter("speed.x", "speed.x", color="r")
     plot_manager.addPlotToPlotter("nowspeed.x", "nowspeed.x", color="b")
@@ -149,7 +141,6 @@ if __name__ == "__main__":
     
     try:
         while True:
-            # 模拟数据更新
             plot_manager.updateDataToPlotter("acc.x", "acc.x", np.random.randn()*0.5+4)
             plot_manager.updateDataToPlotter("speed.x", "speed.x", np.random.randn()*10+300)
             plot_manager.updateDataToPlotter("nowspeed.x", "nowspeed.x", np.random.randn()*5+730)

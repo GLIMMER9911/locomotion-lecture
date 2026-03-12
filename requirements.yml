@@ -12,4 +12,7 @@ dependencies:
   - pinocchio
   - jupyter
   - "gymnasium == 1.0.0"
-  - "numpy >=1.24,<2"
+  - numpy
+  - pyqtgraph
+  - PyQt5
+  - casadi
