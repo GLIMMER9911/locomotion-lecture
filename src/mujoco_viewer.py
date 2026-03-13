@@ -1,42 +1,71 @@
-import time
+"""MuJoCo simulation interface: load model, viewer, state sync, and stepping."""
+
+import numpy as np
 import mujoco
 import mujoco.viewer
 
-class CustomViewer:
-    def __init__(self, model_path, distance=3, azimuth=0, elevation=-30):
-        self.model = mujoco.MjModel.from_xml_path(model_path)
-        self.data = mujoco.MjData(self.model)
 
-        self.handle = mujoco.viewer.launch_passive(self.model, self.data)
-        self.handle.cam.distance = distance
-        self.handle.cam.azimuth = azimuth
-        self.handle.cam.elevation = elevation
+class MuJoCoSim:
+    """Wrapper for MuJoCo model, data, viewer, and joint index mapping."""
+
+    def __init__(self, scene_path: str, nq: int):
+        """
+        Load MuJoCo scene and allocate state.
+
+        Args:
+            scene_path: Path to scene XML (e.g. model/scene.xml).
+            nq: Number of position DOFs (must match joint indices used for control).
+        """
+        self.model = mujoco.MjModel.from_xml_path(scene_path)
+        self.data = mujoco.MjData(self.model)
+        self.nq = nq
+        self.joint_indices = np.arange(0, nq)
+        self._viewer = None
+
+        mujoco.mj_forward(self.model, self.data)
+
+    def get_model_np(self):
+        return self.model.nq, self.model.nv, self.model.nu
 
     def is_running(self):
-        return self.handle.is_running()
+        return self._viewer.is_running()
 
-    def sync(self):
-        self.handle.sync()
+    def launch_viewer(self):
+        """Start passive viewer. Call sync() after each step to update."""
+        self._viewer = mujoco.viewer.launch_passive(self.model, self.data)
+        return self._viewer
 
-    @property
-    def cam(self):
-        return self.handle.cam
+    def get_joint_state(self):
+        """Return (q, dq) for the controlled joints from current MuJoCo state."""
+        q = self.data.qpos[self.joint_indices].copy()
+        dq = self.data.qvel[self.joint_indices].copy()
+        return q, dq
 
-    @property
-    def viewport(self):
-        return self.handle.viewport
+    def set_joint_positions(self, q: np.ndarray):
+        """Set qpos for controlled joints and run mj_forward."""
+        self.data.qpos[self.joint_indices] = q
+        mujoco.mj_forward(self.model, self.data)
 
-    def run_loop(self):
-        self.runBefore()
-        while self.is_running():
-            mujoco.mj_forward(self.model, self.data)
-            self.runFunc()
-            mujoco.mj_step(self.model, self.data)
-            self.sync()
-            time.sleep(self.model.opt.timestep)
+    def set_control(self, tau: np.ndarray):
+        """Set control (joint torques) for the next step."""
+        self.data.ctrl[:] = tau
+
+    def step(self):
+        """Advance simulation by one timestep."""
+        mujoco.mj_step(self.model, self.data)
+
+    def sync_viewer(self):
+        """Sync passive viewer with current state."""
+        if self._viewer is not None:
+            self._viewer.sync()
     
-    def runBefore(self):
-        pass
+    def run_loop(self):
+        self.runBeforeStep()
+        while self.is_running():
+            self.step()
+            self.sync_viewer()
 
-    def runFunc(self):
-        pass
+    @property
+    def dt(self) -> float:
+        """Simulation timestep."""
+        return self.model.opt.timestep

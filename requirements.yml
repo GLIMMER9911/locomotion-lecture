@@ -14,5 +14,6 @@ dependencies:
   - "gymnasium == 1.0.0"
   - numpy
   - pyqtgraph
-  - PyQt5
+  - pyqt
   - casadi
+  - pynput
