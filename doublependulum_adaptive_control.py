@@ -2,7 +2,7 @@
 double pendulum trajectory tracking control with MuJoCo.
 Dynamics is given 
 Run :
-    python doublependulum_tracking.py
+    python doublependulum_adaptive_control.py
 """
 import os
 import sys
@@ -30,7 +30,6 @@ def joint_trajectory(t):
     ])
     return q_ref, dq_ref, dqq_ref
 
-
 def joint_trajectory_rich(t):
     q_ref = np.array([
         np.pi / 8 - np.pi / 8 * np.cos(t),
@@ -49,6 +48,64 @@ def joint_trajectory_rich(t):
 
     return q_ref, dq_ref, ddq_ref
 
+def regressor_matrix(q, dq, dqr, ddqr, l1=1.0, l2=1.0, g=9.81):
+    q1, q2 = q
+    dq1, dq2 = dq
+    dqr1, dqr2 = dqr
+    ddqr1, ddqr2 = ddqr
+
+    delta = q2 - q1
+
+    Y = np.zeros((2, 2))
+
+    # tau_1 coefficient of m1
+    Y[0, 0] = l1**2 * ddqr1 + g * l1 * np.sin(q1)
+
+    # tau_1 coefficient of m2
+    Y[0, 1] = (
+        l1**2 * ddqr1
+        + l1 * l2 * np.cos(delta) * ddqr2
+        - l1 * l2 * np.sin(delta) * dq2 * dqr2
+        + g * l1 * np.sin(q1)
+    )
+
+    # tau_2 coefficient of m1
+    Y[1, 0] = 0.0
+
+    # tau_2 coefficient of m2
+    Y[1, 1] = (
+        l1 * l2 * np.cos(delta) * ddqr1
+        + l2**2 * ddqr2
+        + l1 * l2 * np.sin(delta) * dq1 * dqr1
+        + g * l2 * np.sin(q2)
+    )
+
+    return Y
+
+def adaptive_tracking_control(
+    q, dq,
+    q_ref, dq_ref, ddq_ref,
+    theta_hat,
+    Ks=np.diag([10.0, 10.0]),
+    K=np.diag([10.0, 10.0]),
+    Gamma=np.diag([10.0, 10.0]),
+):
+    e = q_ref - q
+    de = dq_ref - dq
+
+    s = de + Ks @ e
+
+    dqr = dq_ref + Ks @ e
+    ddqr = ddq_ref + Ks @ de
+
+    Y = regressor_matrix(q, dq, dqr, ddqr)
+
+    tau = Y @ theta_hat + K @ s
+
+    theta_hat_dot = Gamma @ Y.T @ s
+
+    return tau, theta_hat_dot, s, Y
+
 
 
 def trajectory_tracking_control(q, dq, q_ref, dq_ref, dqq_ref, model: DoublePendulum):
@@ -60,8 +117,8 @@ def trajectory_tracking_control(q, dq, q_ref, dq_ref, dqq_ref, model: DoublePend
     model: DoublePendulum model for computing the dynamics
     """
     # Control gains
-    Kp = np.diag([10.0, 10.0])  # Proportional gain
-    Kd = np.diag([10.0, 10.0])  # Derivative gain
+    Kp = np.diag([1.0, 1.0])  # Proportional gain
+    Kd = np.diag([0.0, 0.0])     # Derivative gain
 
     # Compute the error terms
     e = q_ref - q          # Position error
@@ -108,16 +165,14 @@ def rk4_step(x, tau, dt, model: DoublePendulum):
     return x_next
 
 
-def main(
-):
-    # Controller model
-    m1_model = 1.0
-    m2_model = 1.0
-    l1 = 1.0
-    l2 = 1.0
-    model = DoublePendulum(m1_model, m2_model, l1, l2)
+def main():
+    plant = DoublePendulum(
+        m1=4.0,
+        m2=2.0,
+        l1=1.0,
+        l2=1.0
+    )
 
-    # Initial state
     q0 = np.array([0.0, 0.0])
     dq0 = np.array([0.0, 0.0])
 
@@ -125,17 +180,19 @@ def main(
     x[0:2] = q0
     x[2:4] = dq0
 
+    theta_hat = np.array([1.0, 1.0])
+
     DT = 0.001
-    T_move = 10.0
+    T_move = 20.0
     steps = int(T_move / DT)
 
     t = 0.0
 
     q_log = []
     q_ref_log = []
-    tau_log = []
+    theta_log = []
+    s_log = []
     time_log = []
-    error_log = []
 
     for i in range(steps):
         q = x[0:2]
@@ -143,48 +200,52 @@ def main(
 
         q_ref, dq_ref, ddq_ref = joint_trajectory_rich(t)
 
-        tau = trajectory_tracking_control(
+        tau, theta_hat_dot, s, Y = adaptive_tracking_control(
             q, dq,
             q_ref, dq_ref, ddq_ref,
-            model
+            theta_hat
         )
 
-        x = rk4_step(x, tau, DT, model)
+        x = rk4_step(x, tau, DT, plant)
+
+        theta_hat = theta_hat + DT * theta_hat_dot
 
         q_log.append(q.copy())
         q_ref_log.append(q_ref.copy())
-        tau_log.append(tau.copy())
+        theta_log.append(theta_hat.copy())
+        s_log.append(s.copy())
         time_log.append(t)
-        error_log.append(q_ref - q)
 
-        if i % 1000 == 0:
+        if i % 500 == 0:
             print(
                 f"t = {t:.3f}, "
                 f"q = {q}, "
                 f"q_ref = {q_ref}, "
-                f"error = {q_ref - q}"
+                f"theta_hat = {theta_hat}, "
+                f"s = {s}"
             )
 
         t += DT
 
     q_log = np.array(q_log)
     q_ref_log = np.array(q_ref_log)
-    tau_log = np.array(tau_log)
+    theta_log = np.array(theta_log)
+    s_log = np.array(s_log)
     time_log = np.array(time_log)
-    error_log = np.array(error_log)
+
     plot_joint_trajectory_comparison_subplots(
-    time_log,
-    q_log,
-    q_ref_log,
-    ref_label="q_ref_log",
-    est_label="q_log")   
+        time_log,
+        q_log,
+        q_ref_log,
+        ref_label="q_ref_log",
+        est_label="q_log")
     plot_joint_trajectories(
         time_log,
-        error_log,
-        labels=["q1 error", "q2 error"],
+        theta_log,
+        labels=["m1_hat", "m2_hat"],
     )
-    return time_log, q_log, q_ref_log, tau_log
 
+    return time_log, q_log, q_ref_log, theta_log, s_log
 
 
 if __name__ == "__main__":
